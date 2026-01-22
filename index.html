@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pollinations AI Playground 🌸 v1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { font-family: system-ui, sans-serif; background:#0b0f14; color:#e5e7eb; margin:0 }
+    button, input, select, textarea { background:#111827; color:#e5e7eb; border:1px solid #374151; border-radius:8px; padding:8px }
+    button { cursor:pointer }
+    .tabs { display:flex; gap:8px; padding:12px; background:#020617; border-bottom:1px solid #1f2933 }
+    .tab { padding:8px 12px; border-radius:8px; cursor:pointer }
+    .tab.active { background:#1f2933 }
+    .page { display:none; padding:16px }
+    .page.active { display:block }
+    .grid { display:grid; grid-template-columns:2fr 1fr; gap:16px }
+    .card { background:#020617; border:1px solid #1f2933; border-radius:16px; padding:16px }
+    .log { height:260px; overflow:auto; border:1px solid #1f2933; padding:8px; border-radius:8px }
+    img, video { max-width:100%; border-radius:12px; margin-top:8px }
+    .row { display:flex; gap:8px; margin-top:8px }
+    h2 { margin:0 0 8px 0 }
+  </style>
+</head>
+<body>
+
+<div id="auth" class="card" style="margin:16px">
+  <button onclick="connect()">Connect with Pollinations 🌸</button>
+</div>
+
+<div id="app" style="display:none">
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('chat')">Chat</div>
+    <div class="tab" onclick="showTab('arena')">Arena</div>
+    <div class="tab" onclick="showTab('images')">Images / Video</div>
+    <div class="tab" onclick="showTab('models')">Models</div>
+  </div>
+
+  <!-- CHAT -->
+  <div id="chat" class="page active">
+    <div class="grid">
+      <div class="card">
+        <h2>Chat Playground</h2>
+        <select id="chatModel"></select>
+        <div class="log" id="chatLog"></div>
+        <div class="row">
+          <input id="chatInput" placeholder="Say something..." style="flex:1" />
+          <button onclick="sendChat()">Send</button>
+        </div>
+        <div class="row">
+          <button onclick="preset('Explain this like I am 5')">ELI5</button>
+          <button onclick="preset('Write production ready code')">Code</button>
+          <button onclick="preset('Be brutally honest')">Honest</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ARENA -->
+  <div id="arena" class="page">
+    <div class="card">
+      <h2>AI Tournament ⚔️</h2>
+      <textarea id="arenaPrompt" placeholder="Debate topic..." style="width:100%"></textarea>
+      <button onclick="runTournament()">Run Tournament</button>
+      <div id="arenaLog" class="log"></div>
+    </div>
+  </div>
+
+  <!-- IMAGES -->
+  <div id="images" class="page">
+    <div class="card">
+      <h2>Image / Video Generation</h2>
+      <input id="mediaPrompt" placeholder="A cinematic cyberpunk city" style="width:100%" />
+      <div class="row">
+        <select id="mediaModel">
+          <option value="flux">flux (image)</option>
+          <option value="seedance">seedance (video)</option>
+        </select>
+        <button onclick="generateMedia()">Generate</button>
+      </div>
+      <div id="media"></div>
+    </div>
+  </div>
+
+  <!-- MODELS -->
+  <div id="models" class="page">
+    <div class="grid">
+      <div class="card">
+        <h2>Available Models</h2>
+        <select id="modelSelect"></select>
+        <button onclick="describeModel()">AI Describe</button>
+        <button onclick="scoreModels()">Compare & Score</button>
+      </div>
+      <div class="card">
+        <h2>Model Info</h2>
+        <div id="modelInfo" class="log"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "https://gen.pollinations.ai";
+let apiKey, chatMessages = [];
+
+function connect() {
+  location.href = `https://enter.pollinations.ai/authorize?redirect_url=${encodeURIComponent(location.href)}`;
+}
+
+function showTab(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  [...document.querySelectorAll('.tab')].find(t => t.textContent.toLowerCase().includes(id)).classList.add('active');
+}
+
+function preset(text) {
+  chatInput.value = text + ": ";
+}
+
+async function init() {
+  apiKey = new URLSearchParams(location.hash.slice(1)).get('api_key');
+  if (!apiKey) return;
+  auth.style.display = 'none'; app.style.display = 'block';
+
+  const res = await fetch(`${API}/v1/models`, { headers:{Authorization:`Bearer ${apiKey}`}});
+  const models = (await res.json()).data.map(m => m.id);
+  models.forEach(m => chatModel.innerHTML += `<option>${m}</option>`);
+  models.forEach(m => modelSelect.innerHTML += `<option>${m}</option>`);
+}
+
+async function sendChat() {
+  chatMessages.push({role:'user',content:chatInput.value});
+  chatLog.innerHTML += `<b>you:</b> ${chatInput.value}<br>`;
+  chatInput.value='';
+  const r = await fetch(`${API}/v1/chat/completions`,{
+    method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},
+    body:JSON.stringify({model:chatModel.value,messages:chatMessages})
+  });
+  const d = await r.json();
+  const msg = d.choices[0].message.content;
+  chatMessages.push({role:'assistant',content:msg});
+  chatLog.innerHTML += `<b>ai:</b> ${msg}<br>`;
+}
+
+async function runTournament() {
+  arenaLog.innerHTML='';
+  const prompt = arenaPrompt.value || 'Debate why your AI model is the best.';
+  const models = ['openai','mistral','qwen-coder'];
+  const scores = {};
+
+  for (let m of models) {
+    const r = await fetch(`${API}/v1/chat/completions`,{
+      method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},
+      body:JSON.stringify({model:m,messages:[{role:'user',content:prompt}]})
+    });
+    const d = await r.json();
+    const text = d.choices[0].message.content;
+    scores[m] = text.length;
+    arenaLog.innerHTML += `<b>${m}</b>: ${text}<br><br>`;
+  }
+
+  arenaLog.innerHTML += `<hr><b>Winner:</b> ${Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0]}`;
+}
+
+function generateMedia() {
+  const url = `${API}/image/${encodeURIComponent(mediaPrompt.value)}?model=${mediaModel.value}&key=${apiKey}`;
+  media.innerHTML = mediaModel.value==='seedance' ? `<video src="${url}" controls></video>` : `<img src="${url}"/>`;
+}
+
+async function describeModel() {
+  const m = modelSelect.value;
+  const r = await fetch(`${API}/v1/chat/completions`,{
+    method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},
+    body:JSON.stringify({model:'openai',messages:[{role:'user',content:`Describe ${m} for developers in bullets.`}]})
+  });
+  modelInfo.textContent = (await r.json()).choices[0].message.content;
+}
+
+async function scoreModels() {
+  const r = await fetch(`${API}/v1/chat/completions`,{
+    method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},
+    body:JSON.stringify({model:'openai',messages:[{role:'user',content:`Compare ${modelSelect.value} to other models and score it from 1-10.`}]})
+  });
+  modelInfo.textContent = (await r.json()).choices[0].message.content;
+}
+
+init();
+</script>
+</body>
+</html>
