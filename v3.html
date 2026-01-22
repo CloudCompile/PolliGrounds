@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Pollinations AI Arena 🌸</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+:root{
+  --bg:#0a0f1f; --card:rgba(255,255,255,.08); --border:rgba(255,255,255,.15);
+  --text:#e5e7eb; --accent:#7c7cff; --glass:blur(20px) saturate(160%);
+}
+[data-theme="light"]{
+  --bg:#f4f6fb; --card:rgba(255,255,255,.7); --border:#e5e7eb; --text:#020617; --accent:#4f46e5;
+}
+*{box-sizing:border-box;font-family:system-ui}
+body{margin:0;background:radial-gradient(1200px 600px at top,var(--accent),transparent),var(--bg);color:var(--text);min-height:100vh}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px}
+.tabs{display:flex;gap:8px}
+button{background:var(--card);backdrop-filter:var(--glass);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:14px;cursor:pointer;transition:.2s}
+button:hover{transform:translateY(-1px);box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.card{background:var(--card);backdrop-filter:var(--glass);border:1px solid var(--border);border-radius:24px;padding:16px;animation:fade .4s ease}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:16px}
+.log{height:280px;overflow:auto}
+input,select,textarea{width:100%;padding:10px;border-radius:12px;background:transparent;color:var(--text);border:1px solid var(--border)}
+video,img{max-width:100%;border-radius:16px;margin-top:8px}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+</style>
+</head>
+<body data-theme="dark">
+<header>
+  <h2>🌸 Pollinations AI Arena</h2>
+  <div class="tabs">
+    <button onclick="tab('chat')">Chat</button>
+    <button onclick="tab('arena')">Arena</button>
+    <button onclick="tab('media')">Images / Video</button>
+    <button onclick="tab('models')">Models</button>
+    <button onclick="toggleTheme()">🌗</button>
+  </div>
+</header>
+
+<div id="auth" class="card" style="margin:16px"><button onclick="connect()">Connect with Pollinations 🌸</button></div>
+
+<div id="app" style="display:none">
+
+<!-- CHAT -->
+<div id="chat" class="grid">
+  <div class="card">
+    <h3>Streaming Chat</h3>
+    <select id="chatModel"></select>
+    <div id="chatLog" class="log"></div>
+    <input id="chatInput" placeholder="Say something…" />
+    <button onclick="streamChat()">Send</button>
+  </div>
+</div>
+
+<!-- ARENA -->
+<div id="arena" class="grid" style="display:none">
+  <div class="card">
+    <h3>Arena Presets</h3>
+    <select id="preset">
+      <option>Debate</option><option>Code Review</option><option>Creative Writing</option>
+    </select>
+    <textarea id="arenaPrompt" placeholder="Prompt"></textarea>
+    <label>Rounds <input type="range" id="rounds" min="1" max="5" value="3" /></label>
+    <h4>Judge Weights</h4>
+    Style <input type="range" id="wStyle" min="1" max="10" value="4" />
+    Accuracy <input type="range" id="wAcc" min="1" max="10" value="4" />
+    Creativity <input type="range" id="wCre" min="1" max="10" value="2" />
+    <button onclick="runTournament()">Run Tournament</button>
+  </div>
+  <div class="card"><h3>Bracket</h3><div id="bracket"></div></div>
+  <div class="card"><h3>Leaderboard</h3><div id="leader"></div></div>
+</div>
+
+<!-- MEDIA -->
+<div id="media" class="grid" style="display:none">
+  <div class="card">
+    <input id="mediaPrompt" placeholder="Cinematic cyberpunk city" />
+    <select id="mediaModel"><option value="flux">Image</option><option value="seedance">Video</option></select>
+    <button onclick="genMedia()">Generate</button>
+    <div id="mediaOut"></div>
+  </div>
+</div>
+
+<!-- MODELS -->
+<div id="models" class="grid" style="display:none">
+  <div class="card">
+    <h3>Model Explorer</h3>
+    <select id="filter"><option>All</option><option>Cheap</option><option>Fast</option><option>Reasoning</option></select>
+    <select id="modelList"></select>
+    <button onclick="describeModel()">AI Describe</button>
+    <div id="modelInfo" class="log"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const API='https://gen.pollinations.ai'; let apiKey;
+const leaderboard={};
+
+function connect(){location.href=`https://enter.pollinations.ai/authorize?redirect_url=${encodeURIComponent(location.href)}`}
+function tab(id){['chat','arena','media','models'].forEach(t=>document.getElementById(t).style.display=t===id?'grid':'none')}
+function toggleTheme(){document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark'}
+
+async function init(){apiKey=new URLSearchParams(location.hash.slice(1)).get('api_key');if(!apiKey)return;auth.style.display='none';app.style.display='block';loadModels()}
+
+async function loadModels(){const r=await fetch(`${API}/v1/models`,{headers:{Authorization:`Bearer ${apiKey}`}});const d=await r.json();d.data.forEach(m=>{chatModel.innerHTML+=`<option>${m.id}</option>`;modelList.innerHTML+=`<option>${m.id}</option>`})}
+
+// TRUE SSE STREAMING
+async function streamChat(){chatLog.innerHTML+='\n<b>You:</b> '+chatInput.value;const res=await fetch(`${API}/v1/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},body:JSON.stringify({model:chatModel.value,stream:true,messages:[{role:'user',content:chatInput.value}]})});const reader=res.body.getReader();let txt='';while(true){const {done,value}=await reader.read();if(done)break;const chunk=new TextDecoder().decode(value);chunk.split('data: ').forEach(l=>{if(l.includes('content')){const t=l.split('"content":"')[1]?.split('"')[0];if(t){txt+=t;chatLog.innerHTML+=''+t}}})}
+
+// TOURNAMENT
+async function runTournament(){bracket.innerHTML='';leader.innerHTML='';const models=[...modelList.options].slice(0,4).map(o=>o.value);for(let m of models){leaderboard[m]=0}
+for(let r=1;r<=rounds.value;r++){
+ for(let m of models){const res=await fetch(`${API}/v1/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},body:JSON.stringify({model:m,messages:[{role:'user',content:arenaPrompt.value}]})});const d=await res.json();leaderboard[m]+=d.choices[0].message.content.length}}
+judge(models)}
+
+async function judge(models){const rubric=`Score each model 1-10. Weights: style ${wStyle.value}, accuracy ${wAcc.value}, creativity ${wCre.value}.`;const res=await fetch(`${API}/v1/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},body:JSON.stringify({model:'openai',messages:[{role:'user',content:rubric+JSON.stringify(leaderboard)}]})});const d=await res.json();bracket.textContent=d.choices[0].message.content;Object.entries(leaderboard).forEach(([k,v])=>leader.innerHTML+=`${k}: ${v}<br>`);location.hash=btoa(JSON.stringify({prompt:arenaPrompt.value,leaderboard}))}
+
+function genMedia(){const u=`${API}/image/${encodeURIComponent(mediaPrompt.value)}?model=${mediaModel.value}&key=${apiKey}`;mediaOut.innerHTML=mediaModel.value==='seedance'?`<video src="${u}" controls></video>`:`<img src="${u}"/>`}
+async function describeModel(){const r=await fetch(`${API}/v1/chat/completions`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},body:JSON.stringify({model:'openai',messages:[{role:'user',content:`Explain model ${modelList.value} and categorize cheap/fast/reasoning.`}]})});const d=await r.json();modelInfo.textContent=d.choices[0].message.content}
+
+init();
+</script>
+</body>
+</html>
