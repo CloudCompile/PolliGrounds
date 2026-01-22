@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pollinations.ai Playground</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: sans-serif; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .loader { border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top: 3px solid #3b82f6; width: 20px; height: 20px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const API_BASE = 'https://gen.pollinations.ai';
+        const AUTH_Url = 'https://enter.pollinations.ai/authorize';
+
+        // --- Basic UI Components ---
+
+        const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false }) => {
+            const baseStyle = "px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2";
+            const variants = {
+                primary: "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50",
+                secondary: "bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600",
+                danger: "bg-red-600 hover:bg-red-500 text-white",
+                success: "bg-green-600 hover:bg-green-500 text-white"
+            };
+            return (
+                <button 
+                    onClick={onClick} 
+                    disabled={disabled}
+                    className={`${baseStyle} ${variants[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+                >
+                    {children}
+                </button>
+            );
+        };
+
+        const Select = ({ label, options, value, onChange, className = '' }) => (
+            <div className={`flex flex-col gap-1 ${className}`}>
+                <label className="text-xs text-slate-400 uppercase tracking-wider">{label}</label>
+                <select 
+                    value={value} 
+                    onChange={(e) => onChange(e.target.value)}
+                    className="bg-slate-800 border border-slate-600 rounded p-2 text-sm focus:border-blue-500 outline-none text-slate-200"
+                >
+                    {options.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                </select>
+            </div>
+        );
+
+        // --- Views ---
+
+        const ChatView = ({ apiKey, models }) => {
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [selectedModel, setSelectedModel] = useState('openai');
+            const chatEndRef = useRef(null);
+
+            const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            useEffect(scrollToBottom, [messages]);
+
+            const sendMessage = async () => {
+                if (!input.trim()) return;
+                const userMsg = { role: 'user', content: input };
+                const newHistory = [...messages, userMsg];
+                setMessages(newHistory);
+                setInput('');
+                setLoading(true);
+
+                try {
+                    const response = await fetch(`${API_BASE}/v1/chat/completions`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: selectedModel,
+                            messages: newHistory
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.choices && data.choices[0]) {
+                        setMessages([...newHistory, data.choices[0].message]);
+                    } else {
+                        throw new Error("No response content");
+                    }
+                } catch (err) {
+                    setMessages([...newHistory, { role: 'system', content: `Error: ${err.message}` }]);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const modelOptions = models.text.length > 0 
+                ? models.text.map(m => ({ value: m.name, label: m.name })) 
+                : [{ value: 'openai', label: 'OpenAI (Default)' }];
+
+            return (
+                <div className="flex flex-col h-full">
+                    <div className="glass-panel p-4 mb-4 rounded-xl flex justify-between items-center flex-wrap gap-2">
+                        <h2 className="text-xl font-bold text-blue-400 flex items-center gap-2">
+                            <i className="fas fa-comment-alt"></i> Universal Chat
+                        </h2>
+                        <Select label="Model" options={modelOptions} value={selectedModel} onChange={setSelectedModel} className="w-48" />
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto space-y-4 pr-2 mb-4 scrollbar-hide">
+                        {messages.length === 0 && (
+                            <div className="text-center text-slate-500 mt-20 flex flex-col items-center">
+                                <i className="fas fa-robot text-5xl mb-4 opacity-50"></i>
+                                <p>Start a conversation with any Pollinations model.</p>
+                            </div>
+                        )}
+                        {messages.map((msg, i) => (
+                            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[90%] md:max-w-[80%] rounded-2xl p-4 ${msg.role === 'user' ? 'bg-blue-600 text-white' : (msg.role === 'system' ? 'bg-red-900/50 border border-red-500' : 'bg-slate-700 text-slate-200')}`}>
+                                    <div className="text-xs opacity-50 mb-1 capitalize">{msg.role}</div>
+                                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                                </div>
+                            </div>
+                        ))}
+                        {loading && (
+                            <div className="flex justify-start">
+                                <div className="bg-slate-700 rounded-2xl p-4 flex items-center gap-2">
+                                    <div className="loader"></div>
+                                    <span className="text-sm text-slate-400">Thinking...</span>
+                                </div>
+                            </div>
+                        )}
+                        <div ref={chatEndRef} />
+                    </div>
+
+                    <div className="glass-panel p-2 rounded-xl flex gap-2">
+                        <input 
+                            type="text" 
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                            placeholder="Type a message..." 
+                            className="flex-1 bg-transparent text-white p-3 focus:outline-none"
+                        />
+                        <Button onClick={sendMessage} disabled={loading}>
+                            <i className="fas fa-paper-plane"></i>
+                        </Button>
+                    </div>
+                </div>
+            );
+        };
+
+        const BattleView = ({ apiKey, models }) => {
+            const [active, setActive] = useState(false);
+            const [logs, setLogs] = useState([]);
+            const [turn, setTurn] = useState('A'); 
+            const [modelA, setModelA] = useState('openai');
+            const [modelB, setModelB] = useState('mistral');
+            const [topic, setTopic] = useState('The future of artificial intelligence');
+            const [round, setRound] = useState(0);
+
+            const chatContainerRef = useRef(null);
+
+            useEffect(() => {
+                if(chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+                }
+            }, [logs]);
+
+            useEffect(() => {
+                if (!active) return;
+                
+                const runTurn = async () => {
+                    const currentModel = turn === 'A' ? modelA : modelB;
+                    const role = turn === 'A' ? 'Combatant A' : 'Combatant B';
+
+                    const context = logs.map(l => ({
+                        role: l.speaker === turn ? 'assistant' : 'user',
+                        content: l.text
+                    }));
+
+                    const systemPrompt = {
+                        role: 'system',
+                        content: `You are ${role} in a debate. Topic: "${topic}". Keep it under 50 words.`
+                    };
+
+                    try {
+                        const response = await fetch(`${API_BASE}/v1/chat/completions`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                            body: JSON.stringify({
+                                model: currentModel,
+                                messages: [systemPrompt, ...context]
+                            })
+                        });
+                        const data = await response.json();
+                        const reply = data.choices?.[0]?.message?.content || "...";
+
+                        setLogs(prev => [...prev, { speaker: turn, model: currentModel, text: reply }]);
+                        setTurn(prev => prev === 'A' ? 'B' : 'A');
+                        setRound(prev => prev + 1);
+
+                    } catch (e) {
+                        setLogs(prev => [...prev, { speaker: 'System', text: `Error: ${e.message}` }]);
+                        setActive(false);
+                    }
+                };
+
+                const timer = setTimeout(runTurn, 2500);
+                return () => clearTimeout(timer);
+
+            }, [active, turn, logs, apiKey, modelA, modelB, topic]);
+
+            const modelOptions = models.text.map(m => ({ value: m.name, label: m.name }));
+
+            return (
+                <div className="h-full flex flex-col gap-4">
+                    <div className="glass-panel p-4 rounded-xl">
+                        <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                            <h2 className="text-xl font-bold text-purple-400 flex items-center gap-2">
+                                <i className="fas fa-fist-raised"></i> Battle Arena
+                            </h2>
+                            <div className="flex gap-2">
+                                {active ? (
+                                    <Button variant="danger" onClick={() => setActive(false)}>Stop</Button>
+                                ) : (
+                                    <Button variant="success" onClick={() => { setLogs([]); setRound(0); setActive(true); }}>Start</Button>
+                                )}
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <Select label="Combatant A" options={modelOptions} value={modelA} onChange={setModelA} />
+                            <div className="flex flex-col">
+                                <label className="text-xs text-slate-400 uppercase tracking-wider mb-1">Topic</label>
+                                <input type="text" value={topic} onChange={e => setTopic(e.target.value)} className="bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white outline-none" />
+                            </div>
+                            <Select label="Combatant B" options={modelOptions} value={modelB} onChange={setModelB} />
+                        </div>
+                    </div>
+
+                    <div className="flex-1 bg-slate-900/50 rounded-xl overflow-y-auto p-4 space-y-4 border border-slate-700" ref={chatContainerRef}>
+                        {logs.map((log, i) => (
+                            <div key={i} className={`flex ${log.speaker === 'A' ? 'justify-start' : (log.speaker === 'System' ? 'justify-center' : 'justify-end')}`}>
+                                <div className={`max-w-[70%] rounded-xl p-3 shadow-lg border ${log.speaker === 'A' ? 'bg-slate-800 border-blue-500/30' : (log.speaker === 'System' ? 'bg-red-900/80 text-white' : 'bg-slate-800 border-green-500/30')}`}>
+                                    {log.speaker !== 'System' && <div className={`text-xs font-bold mb-1 ${log.speaker === 'A' ? 'text-blue-400' : 'text-green-400'}`}>{log.model}</div>}
+                                    <div className="text-sm text-slate-200">{log.text}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const MediaView = ({ apiKey, models }) => {
+            const [prompt, setPrompt] = useState("A cyberpunk city with neon lights, realistic, 8k");
+            const [selectedModel, setSelectedModel] = useState('flux');
+            const [resultUrl, setResultUrl] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [seed, setSeed] = useState(Math.floor(Math.random() * 1000));
+
+            const generateMedia = async () => {
+                setLoading(true);
+                setResultUrl(null);
+                try {
+                    const params = new URLSearchParams({ model: selectedModel, seed: seed, nologo: true });
+                    const url = `${API_BASE}/image/${encodeURIComponent(prompt)}?${params.toString()}`;
+                    const response = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+                    if (!response.ok) throw new Error("Failed");
+                    const blob = await response.blob();
+                    setResultUrl(URL.createObjectURL(blob));
+                } catch (err) {
+                    alert("Error: " + err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const imageModels = models.image.map(m => ({ value: m.name, label: m.name }));
+
+            return (
+                <div className="h-full flex flex-col md:flex-row gap-4">
+                    <div className="w-full md:w-1/3 glass-panel p-4 rounded-xl space-y-4">
+                        <h2 className="text-xl font-bold text-pink-400">Media Studio</h2>
+                        <textarea className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-sm h-24 text-white" value={prompt} onChange={e => setPrompt(e.target.value)} />
+                        <Select label="Model" options={imageModels} value={selectedModel} onChange={setSelectedModel} />
+                        <Button onClick={generateMedia} disabled={loading} className="w-full py-3">
+                            {loading ? <div className="loader"></div> : "Generate"}
+                        </Button>
+                    </div>
+                    <div className="flex-1 glass-panel rounded-xl flex items-center justify-center bg-black/40 min-h-[300px]">
+                        {resultUrl ? <img src={resultUrl} className="max-w-full max-h-[70vh] rounded shadow-2xl" /> : <p className="text-slate-600">Media will appear here</p>}
+                    </div>
+                </div>
+            );
+        };
+
+        const ModelHub = ({ apiKey, models }) => {
+            const [analysis, setAnalysis] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [selected, setSelected] = useState(null);
+
+            const analyze = async (modelData) => {
+                setSelected(modelData.name);
+                setLoading(true);
+                try {
+                    const response = await fetch(`${API_BASE}/v1/chat/completions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                        body: JSON.stringify({
+                            model: 'openai',
+                            messages: [{ role: 'user', content: `Summarize this AI model data technically: ${JSON.stringify(modelData)}` }]
+                        })
+                    });
+                    const data = await response.json();
+                    setAnalysis(data.choices[0].message.content);
+                } catch (e) {
+                    setAnalysis("Error: " + e.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="h-full flex flex-col md:flex-row gap-4">
+                    <div className="w-full md:w-1/3 glass-panel p-4 rounded-xl overflow-y-auto">
+                        <h2 className="text-xl font-bold text-yellow-400 mb-4">Model Registry</h2>
+                        {[...models.text, ...models.image].map((m, idx) => (
+                            <div key={idx} onClick={() => analyze(m)} className="p-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800">
+                                <div className="text-sm font-bold">{m.name}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex-1 glass-panel p-6 rounded-xl overflow-y-auto">
+                        <h2 className="text-2xl font-bold mb-4">AI Analysis: {selected}</h2>
+                        {loading ? <div className="loader"></div> : <div className="whitespace-pre-wrap">{analysis}</div>}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main App ---
+
+        const App = () => {
+            const [apiKey, setApiKey] = useState(localStorage.getItem('pollinations_key') || '');
+            const [view, setView] = useState('chat');
+            const [profile, setProfile] = useState(null);
+            const [models, setModels] = useState({ text: [], image: [] });
+
+            useEffect(() => {
+                const params = new URLSearchParams(window.location.hash.substring(1));
+                const key = params.get('api_key');
+                if (key) {
+                    localStorage.setItem('pollinations_key', key);
+                    setApiKey(key);
+                    window.history.replaceState(null, '', window.location.pathname);
+                }
+            }, []);
+
+            useEffect(() => {
+                if (!apiKey) return;
+                const fetchData = async () => {
+                    try {
+                        const headers = { 'Authorization': `Bearer ${apiKey}` };
+                        const [p, t, i] = await Promise.all([
+                            fetch(`${API_BASE}/account/profile`, { headers }).then(r => r.json()),
+                            fetch(`${API_BASE}/text/models`, { headers }).then(r => r.json()),
+                            fetch(`${API_BASE}/image/models`, { headers }).then(r => r.json())
+                        ]);
+                        setProfile(p);
+                        setModels({ text: Array.isArray(t) ? t : [], image: Array.isArray(i) ? i : [] });
+                    } catch (e) { console.error(e); }
+                };
+                fetchData();
+            }, [apiKey]);
+
+            const login = () => {
+                const redirect = encodeURIComponent(window.location.href);
+                window.location.href = `${AUTH_Url}?redirect_url=${redirect}&permissions=profile,balance&models=flux,openai&expiry=7&budget=100`;
+            };
+
+            if (!apiKey) {
+                return (
+                    <div className="h-screen flex items-center justify-center bg-slate-950 p-6">
+                        <div className="glass-panel p-8 rounded-2xl max-w-sm w-full text-center">
+                            <h1 className="text-3xl font-bold mb-6 text-blue-400">Playground</h1>
+                            <Button onClick={login} className="w-full py-3">Login with Pollinations</Button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex h-screen bg-slate-900 text-slate-200">
+                    <div className="w-64 bg-slate-950 border-r border-slate-800 p-4 flex flex-col justify-between">
+                        <div>
+                            <div className="text-xl font-bold mb-8">Pollinations</div>
+                            <nav className="space-y-2">
+                                {['chat', 'battle', 'media', 'models'].map(v => (
+                                    <button key={v} onClick={() => setView(v)} className={`w-full text-left p-2 rounded ${view === v ? 'bg-slate-800' : ''}`}>
+                                        {v.toUpperCase()}
+                                    </button>
+                                ))}
+                            </nav>
+                        </div>
+                        <div className="pt-4 border-t border-slate-800 text-xs text-slate-500">
+                            Logged in: {profile?.name || 'User'}
+                            <button onClick={() => { localStorage.removeItem('pollinations_key'); window.location.reload(); }} className="block mt-2 text-red-400 underline">Logout</button>
+                        </div>
+                    </div>
+                    <main className="flex-1 p-6 overflow-hidden">
+                        {view === 'chat' && <ChatView apiKey={apiKey} models={models} />}
+                        {view === 'battle' && <BattleView apiKey={apiKey} models={models} />}
+                        {view === 'media' && <MediaView apiKey={apiKey} models={models} />}
+                        {view === 'models' && <ModelHub apiKey={apiKey} models={models} />}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
